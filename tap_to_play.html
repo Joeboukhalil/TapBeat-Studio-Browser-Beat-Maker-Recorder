@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>6 Sound Beat Pad</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+  body {
+    font-family: Arial;
+    text-align: center;
+    background: #111;
+    color: white;
+    margin: 0;
+  }
+
+  h1 { margin-top: 20px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    width: 80%;
+    max-width: 300px;
+    margin: 40px auto;
+  }
+
+  .pad {
+    height: 120px;
+    background: #222;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    user-select: none;
+    touch-action: manipulation;
+  }
+
+  .pad:active { background: #444; }
+
+  button {
+    margin: 8px;
+    padding: 12px 18px;
+    border: none;
+    border-radius: 10px;
+    background: #00cc88;
+    color: white;
+  }
+
+  button:active { background: #009966; }
+</style>
+</head>
+<body>
+
+<h1>🎵 6 Sound Beat Pad</h1>
+
+<div class="grid">
+  <div class="pad" onclick="handlePad(1)">1</div>
+  <div class="pad" onclick="handlePad(2)">2</div>
+  <div class="pad" onclick="handlePad(3)">3</div>
+  <div class="pad" onclick="handlePad(4)">4</div>
+  <div class="pad" onclick="handlePad(5)">5</div>
+  <div class="pad" onclick="handlePad(6)">6</div>
+</div>
+
+<button onclick="startRecording()">Start</button>
+<button onclick="stopRecording()">Stop</button>
+<button onclick="playBeat()">Play</button>
+<button onclick="clearBeat()">Clear</button>
+<button onclick="downloadBeat()">Download</button>
+<button onclick="goToTapPage()">Tap Mode One Button</button>
+
+<h3>Convert your WebM recording to MP3 (Free & Browser-based)</h3>
+<ul>
+  <li><a href="https://online-audio-converter.com/" target="_blank">Online Audio Converter</a></li>
+  <li><a href="https://cloudconvert.com/webm-to-mp3" target="_blank">CloudConvert WebM to MP3</a></li>
+  <li><a href="https://convertio.co/webm-mp3/" target="_blank">Convertio WebM to MP3</a></li>
+  <li><a href="https://audio.online-convert.com/convert-to-mp3" target="_blank">Audio Converter Online</a></li>
+</ul>
+
+<script>
+let audioCtx = null;
+let recording = false;
+let playing = false;
+
+let sequence = [];
+let lastTime = null;
+
+// 🔊 Init audio
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+// 🎵 Sound generator
+function playSound(type) {
+  if (!audioCtx) return;
+
+  let osc = audioCtx.createOscillator();
+  let gain = audioCtx.createGain();
+
+  if (type === 1) { osc.type="square"; osc.frequency.value=150; }
+  if (type === 2) { osc.type="sine"; osc.frequency.value=300; }
+  if (type === 3) { osc.type="triangle"; osc.frequency.value=220; }
+  if (type === 4) { osc.type="sawtooth"; osc.frequency.value=180; }
+  if (type === 5) { osc.type="square"; osc.frequency.value=90; }
+  if (type === 6) { osc.type="sine"; osc.frequency.value=500; }
+
+  gain.gain.value = 0.3;
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.15);
+}
+
+// 🎯 Pad press
+function handlePad(type) {
+  initAudio();
+
+  let now = Date.now();
+
+  if (recording) {
+    if (lastTime !== null) {
+      sequence.push({
+        delay: now - lastTime,
+        sound: type
+      });
+    }
+    lastTime = now;
+  }
+
+  playSound(type);
+}
+
+// 🎛 Controls
+function startRecording() {
+  initAudio();
+  sequence = [];
+  lastTime = null;
+  recording = true;
+  playing = false;
+}
+
+function stopRecording() {
+  recording = false;
+}
+
+function playBeat() {
+  if (sequence.length === 0) return;
+
+  initAudio();
+  playing = true;
+
+  let i = 0;
+
+  function loop() {
+    if (!playing) return;
+
+    let step = sequence[i];
+    playSound(step.sound);
+
+    setTimeout(() => {
+      i = (i + 1) % sequence.length;
+      loop();
+    }, step.delay);
+  }
+
+  loop();
+}
+
+function clearBeat() {
+  sequence = [];
+  lastTime = null;
+  playing = false;
+}
+
+// 💾 Download WAV
+function downloadBeat() {
+  if (sequence.length === 0) return;
+
+  let sampleRate = 44100;
+  let length = sampleRate * 4;
+
+  let buffer = new AudioBuffer({
+    length: length,
+    numberOfChannels: 1,
+    sampleRate: sampleRate
+  });
+
+  let data = buffer.getChannelData(0);
+  let time = 0;
+
+  sequence.forEach(step => {
+    let freq = [0,150,300,220,180,90,500][step.sound];
+
+    for (let i = 0; i < 0.15 * sampleRate; i++) {
+      let index = Math.floor(time * sampleRate) + i;
+      if (index < data.length) {
+        data[index] += Math.sin(2 * Math.PI * freq * i / sampleRate) * 0.3;
+      }
+    }
+
+    time += step.delay / 1000;
+  });
+
+  let wav = audioBufferToWav(buffer);
+  let blob = new Blob([wav], { type: "audio/wav" });
+  let url = URL.createObjectURL(blob);
+
+  let a = document.createElement("a");
+  a.href = url;
+  a.download = "beat.wav";
+  a.click();
+}
+
+// WAV converter
+function audioBufferToWav(buffer) {
+  let length = buffer.length * 2 + 44;
+  let view = new DataView(new ArrayBuffer(length));
+
+  function writeString(v, o, s) {
+    for (let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i));
+  }
+
+  writeString(view,0,"RIFF");
+  view.setUint32(4,36+buffer.length*2,true);
+  writeString(view,8,"WAVE");
+  writeString(view,12,"fmt ");
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,1,true);
+  view.setUint32(24,buffer.sampleRate,true);
+  view.setUint32(28,buffer.sampleRate*2,true);
+  view.setUint16(32,2,true);
+  view.setUint16(34,16,true);
+  writeString(view,36,"data");
+  view.setUint32(40,buffer.length*2,true);
+
+  let offset = 44;
+  let data = buffer.getChannelData(0);
+
+  for (let i=0;i<data.length;i++,offset+=2) {
+    let s = Math.max(-1,Math.min(1,data[i]));
+    view.setInt16(offset,s<0?s*0x8000:s*0x7FFF,true);
+  }
+
+  return view;
+}
+
+function goToTapPage() {
+  window.location.href = "index.html";
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tap to Beat Generator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+  body {
+    font-family: Arial;
+    text-align: center;
+    background: #111;
+    color: white;
+    margin: 0;
+  }
+
+  h1 { margin-top: 20px; }
+
+  #tapArea {
+    margin: 40px auto;
+    width: 70vw;
+    max-width: 250px;
+    height: 70vw;
+    max-height: 250px;
+    background: #222;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    user-select: none;
+    touch-action: manipulation;
+  }
+
+  #tapArea:active { background: #444; }
+
+  button {
+    margin: 8px;
+    padding: 12px 18px;
+    border: none;
+    border-radius: 10px;
+    background: #00cc88;
+    color: white;
+  }
+
+  button:active { background: #009966; }
+</style>
+</head>
+<body>
+
+<h1>🎵 Tap to Beat</h1>
+
+<div id="tapArea">TAP</div>
+
+<br>
+
+<button onclick="startRecording()">Start</button>
+<button onclick="stopRecording()">Stop</button>
+<button onclick="playBeat()">Play</button>
+<button onclick="clearBeat()">Clear</button>
+<button onclick="downloadBeat()">Download</button>
+<button onclick="goToTapPage()">Tap Mode</button>
+
+<h3>Convert your WebM recording to MP3 (Free & Browser-based)</h3>
+<ul>
+  <li><a href="https://online-audio-converter.com/" target="_blank">Online Audio Converter</a></li>
+  <li><a href="https://cloudconvert.com/webm-to-mp3" target="_blank">CloudConvert WebM to MP3</a></li>
+  <li><a href="https://convertio.co/webm-mp3/" target="_blank">Convertio WebM to MP3</a></li>
+  <li><a href="https://audio.online-convert.com/convert-to-mp3" target="_blank">Audio Converter Online</a></li>
+</ul>
+
+<script>
+let taps = [];
+let lastTap = null;
+let recording = false;
+let playing = false;
+
+let audioCtx = null;
+let isPressing = false;
+let pressStart = 0;
+
+// 🔊 Init audio
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+// 🔊 Play sound (short or long)
+function playSound(long = false) {
+  if (!audioCtx) return;
+
+  let osc = audioCtx.createOscillator();
+  let gain = audioCtx.createGain();
+
+  osc.type = long ? "sawtooth" : "square";
+  osc.frequency.value = long ? 120 : 180;
+
+  gain.gain.value = 0.3;
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.start();
+  osc.stop(audioCtx.currentTime + (long ? 0.4 : 0.08));
+}
+
+// 🎯 Tap handling
+function tapEnd() {
+  if (!recording) return;
+
+  let now = Date.now();
+  let duration = now - pressStart;
+
+  let isLong = duration > 300;
+
+  if (lastTap !== null) {
+    taps.push({
+      delay: now - lastTap,
+      long: isLong
+    });
+  }
+
+  lastTap = now;
+  playSound(isLong);
+}
+
+// 👇 Input events (mobile + desktop)
+let tapArea = document.getElementById("tapArea");
+
+tapArea.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  initAudio();
+  isPressing = true;
+  pressStart = Date.now();
+});
+
+tapArea.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  if (isPressing) tapEnd();
+  isPressing = false;
+});
+
+tapArea.addEventListener("mousedown", () => {
+  initAudio();
+  isPressing = true;
+  pressStart = Date.now();
+});
+
+tapArea.addEventListener("mouseup", () => {
+  if (isPressing) tapEnd();
+  isPressing = false;
+});
+
+// 🎛 Controls
+function startRecording() {
+  initAudio();
+  taps = [];
+  lastTap = null;
+  recording = true;
+  playing = false;
+}
+
+function stopRecording() {
+  recording = false;
+}
+
+function playBeat() {
+  if (taps.length === 0) return;
+
+  initAudio();
+  playing = true;
+
+  let i = 0;
+
+  function loop() {
+    if (!playing) return;
+
+    let t = taps[i];
+    playSound(t.long);
+
+    setTimeout(() => {
+      i = (i + 1) % taps.length;
+      loop();
+    }, t.delay);
+  }
+
+  loop();
+}
+
+function clearBeat() {
+  taps = [];
+  lastTap = null;
+  playing = false;
+}
+
+// 💾 Download as WAV
+function downloadBeat() {
+  if (taps.length === 0) return;
+
+  let sampleRate = 44100;
+  let length = sampleRate * 3; // 3 sec buffer
+  let buffer = new AudioBuffer({
+    length: length,
+    numberOfChannels: 1,
+    sampleRate: sampleRate
+  });
+
+  let data = buffer.getChannelData(0);
+
+  let time = 0;
+
+  taps.forEach(t => {
+    let freq = t.long ? 120 : 180;
+    let dur = t.long ? 0.4 : 0.08;
+
+    for (let i = 0; i < dur * sampleRate; i++) {
+      let index = Math.floor(time * sampleRate) + i;
+      if (index < data.length) {
+        data[index] += Math.sin(2 * Math.PI * freq * i / sampleRate) * 0.3;
+      }
+    }
+
+    time += t.delay / 1000;
+  });
+
+  let wav = audioBufferToWav(buffer);
+  let blob = new Blob([wav], { type: "audio/wav" });
+  let url = URL.createObjectURL(blob);
+
+  let a = document.createElement("a");
+  a.href = url;
+  a.download = "beat.wav";
+  a.click();
+}
+
+// Convert buffer → WAV
+function audioBufferToWav(buffer) {
+  let length = buffer.length * 2 + 44;
+  let bufferArray = new ArrayBuffer(length);
+  let view = new DataView(bufferArray);
+
+  function writeString(view, offset, str) {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  }
+
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + buffer.length * 2, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, buffer.length * 2, true);
+
+  let offset = 44;
+  let data = buffer.getChannelData(0);
+
+  for (let i = 0; i < data.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, data[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+
+  return view;
+}
+
+function goToTapPage() {
+  window.location.href = "tap_to_play.html";
+}
+</script>
+
+</body>
+</html>
